@@ -292,8 +292,7 @@ public class MongoUtils {
 
     STANDALONE("standalone"),
     REPLICA("replica"),
-    ATLAS("atlas"),
-    DOCUMENTDB("documentdb");
+    ATLAS("atlas");
 
     private final String type;
 

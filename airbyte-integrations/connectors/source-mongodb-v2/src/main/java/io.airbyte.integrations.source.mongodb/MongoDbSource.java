@@ -44,8 +44,7 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
 
   private static final String MONGODB_SERVER_URL = "mongodb://%s%s:%s/%s?authSource=%s&ssl=%s";
   private static final String MONGODB_CLUSTER_URL = "mongodb+srv://%s%s/%s?authSource=%s&retryWrites=true&w=majority&tls=true";
-  private static final String MONGODB_REPLICA_URL = "mongodb://%s%s/%s?authSource=%s&directConnection=false&ssl=true";
-  private static final String MONGODB_DOCUMENTDB_URL = "mongodb://%s%s:%s/%s?ssl=%s&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false";
+  private static final String MONGODB_REPLICA_URL = "mongodb://%s%s/%s?authSource=%s&ssl=%s&directConnection=false";
   private static final String USER = "user";
   private static final String PASSWORD = "password";
   private static final String INSTANCE_TYPE = "instance_type";
@@ -59,6 +58,11 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
   private static final String AUTH_SOURCE = "auth_source";
   private static final String TLS = "tls";
   private static final String PRIMARY_KEY = "_id";
+  private static final String ENCRYPTION = "encryption";
+
+  private static final String KEY_STORE_FILE_PATH = "clientkeystore.jks";
+  private static final String KEY_STORE_PASS = "changeit";
+
 
   public static void main(final String[] args) throws Exception {
     final Source source = new MongoDbSource();
@@ -214,12 +218,34 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
   private String buildConnectionString(final JsonNode config, final String credentials) {
     final StringBuilder connectionStrBuilder = new StringBuilder();
 
+    final JsonNode encryptionConfig = config.get("encryption");
+    final String encryptionMethod = encryptionConfig.get("encryption_method").asText();
+    boolean tls = false;
+    switch (encryptionMethod) {
+      case "unencrypted" -> {
+        tls = false;
+        ;
+      }
+      case "encrypted_verify_certificate" -> {
+        try {
+          convertAndImportCertificate(encryptionConfig.get("ssl_certificate").asText());
+        } catch (final IOException | InterruptedException e) {
+          throw new RuntimeException("Failed to import certificate into Java Keystore");
+        }
+        tls = true;
+//        additionalParameters.add("javax.net.ssl.trustStore=" + KEY_STORE_FILE_PATH);
+//        additionalParameters.add("javax.net.ssl.trustStoreType=JKS");
+//        additionalParameters.add("javax.net.ssl.trustStorePassword=" + KEY_STORE_PASS);
+      }
+    }
+
+
     final JsonNode instanceConfig = config.get(INSTANCE_TYPE);
     final MongoInstanceType instance = MongoInstanceType.fromValue(instanceConfig.get(INSTANCE).asText());
     switch (instance) {
       case STANDALONE -> {
         // supports backward compatibility and secure only connector
-        final var tls = config.has(TLS) ? config.get(TLS).asBoolean() : (instanceConfig.has(TLS) ? instanceConfig.get(TLS).asBoolean() : true);
+//        final var tls = config.has(TLS) ? config.get(TLS).asBoolean() : (instanceConfig.has(TLS) ? instanceConfig.get(TLS).asBoolean() : true);
         connectionStrBuilder.append(
             String.format(MONGODB_SERVER_URL, credentials, instanceConfig.get(HOST).asText(), instanceConfig.get(PORT).asText(),
                 config.get(DATABASE).asText(), config.get(AUTH_SOURCE).asText(), tls));
@@ -227,7 +253,7 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
       case REPLICA -> {
         connectionStrBuilder.append(
             String.format(MONGODB_REPLICA_URL, credentials, instanceConfig.get(SERVER_ADDRESSES).asText(), config.get(DATABASE).asText(),
-                config.get(AUTH_SOURCE).asText()));
+                config.get(AUTH_SOURCE).asText(), tls));
         if (instanceConfig.has(REPLICA_SET)) {
           connectionStrBuilder.append(String.format("&replicaSet=%s", instanceConfig.get(REPLICA_SET).asText()));
         }
@@ -237,14 +263,33 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
             String.format(MONGODB_CLUSTER_URL, credentials, instanceConfig.get(CLUSTER_URL).asText(), config.get(DATABASE).asText(),
                 config.get(AUTH_SOURCE).asText()));
       }
-      case DOCUMENTDB -> {
-        final var tls = config.has(TLS) ? config.get(TLS).asBoolean() : (instanceConfig.has(TLS) ? instanceConfig.get(TLS).asBoolean() : true);
-        connectionStrBuilder.append(
-                String.format(MONGODB_DOCUMENTDB_URL, credentials, instanceConfig.get(HOST).asText(),
-                        instanceConfig.get(PORT).asText(), config.get(DATABASE).asText(), tls));
-      }
+//      case DOCUMENTDB -> {
+//        final var tls = config.has(TLS) ? config.get(TLS).asBoolean() : (instanceConfig.has(TLS) ? instanceConfig.get(TLS).asBoolean() : true);
+//        connectionStrBuilder.append(
+//                String.format(MONGODB_DOCUMENTDB_URL, credentials, instanceConfig.get(HOST).asText(),
+//                        instanceConfig.get(PORT).asText(), config.get(DATABASE).asText(), tls));
+//      }
       default -> throw new IllegalArgumentException("Unsupported instance type: " + instance);
     }
     return connectionStrBuilder.toString();
+  }
+
+  private static void convertAndImportCertificate(final String certificate) {
+    final Runtime run = Runtime.getRuntime();
+    try (final PrintWriter out = new PrintWriter("certificate.pem")) {
+      out.print(certificate);
+    }
+//    runProcess("openssl x509 -outform der -in certificate.pem -out certificate.der", run);
+//    runProcess(
+//            "keytool -import -alias rds-root -keystore " + KEY_STORE_FILE_PATH + " -file certificate.der -storepass " + KEY_STORE_PASS + " -noprompt",
+//            run);
+  }
+
+  private static void runProcess(final String cmd, final Runtime run) {
+    final Process pr = run.exec(cmd);
+    if (!pr.waitFor(30, TimeUnit.SECONDS)) {
+      pr.destroy();
+      throw new RuntimeException("Timeout while executing: " + cmd);
+    } ;
   }
 }
