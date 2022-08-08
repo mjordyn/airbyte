@@ -23,11 +23,19 @@ import io.airbyte.integrations.source.relationaldb.AbstractDbSource;
 import io.airbyte.integrations.source.relationaldb.TableInfo;
 import io.airbyte.protocol.models.CommonField;
 import io.airbyte.protocol.models.JsonSchemaType;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -68,14 +76,21 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
 
   @Override
   public JsonNode toDatabaseConfig(final JsonNode config) {
+    final List<String> additionalParameters = new ArrayList<>();
     final var credentials = config.has(USER) && config.has(JdbcUtils.PASSWORD_KEY)
         ? String.format("%s:%s@", config.get(USER).asText(), config.get(JdbcUtils.PASSWORD_KEY).asText())
         : StringUtils.EMPTY;
 
-    return Jsons.jsonNode(ImmutableMap.builder()
-        .put("connectionString", buildConnectionString(config, credentials))
-        .put(JdbcUtils.DATABASE_KEY, config.get(JdbcUtils.DATABASE_KEY).asText())
-        .build());
+    final ImmutableMap.Builder<Object, Object> configBuilder = ImmutableMap.builder()
+        .put("connectionString", buildConnectionString(config, credentials, additionalParameters))
+        .put(JdbcUtils.DATABASE_KEY, config.get(JdbcUtils.DATABASE_KEY).asText());
+
+    if (!additionalParameters.isEmpty()) {
+      final String connectionParams = String.join(";", additionalParameters);
+      configBuilder.put(JdbcUtils.CONNECTION_PROPERTIES_KEY, connectionParams);
+    }
+
+    return Jsons.jsonNode(configBuilder.build());
   }
 
   @Override
@@ -206,7 +221,7 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
     });
   }
 
-  private String buildConnectionString(final JsonNode config, final String credentials) {
+  private String buildConnectionString(final JsonNode config, final String credentials, final List<String> additionalParameters) {
     final StringBuilder connectionStrBuilder = new StringBuilder();
 
     final JsonNode encryptionConfig = config.get("encryption");
@@ -224,9 +239,9 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
           throw new RuntimeException("Failed to import certificate into Java Keystore");
         }
         tls = true;
-//        additionalParameters.add("javax.net.ssl.trustStore=" + KEY_STORE_FILE_PATH);
-//        additionalParameters.add("javax.net.ssl.trustStoreType=JKS");
-//        additionalParameters.add("javax.net.ssl.trustStorePassword=" + KEY_STORE_PASS);
+        additionalParameters.add("javax.net.ssl.trustStore=" + KEY_STORE_FILE_PATH);
+        additionalParameters.add("javax.net.ssl.trustStoreType=JKS");
+        additionalParameters.add("javax.net.ssl.trustStorePassword=" + KEY_STORE_PASS);
       }
     }
 
@@ -245,7 +260,7 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
         connectionStrBuilder.append(
             String.format(MONGODB_REPLICA_URL, credentials, instanceConfig.get(SERVER_ADDRESSES).asText(),
                 config.get(JdbcUtils.DATABASE_KEY).asText(),
-                config.get(AUTH_SOURCE).asText()));
+                config.get(AUTH_SOURCE).asText(), tls));
         if (instanceConfig.has(REPLICA_SET)) {
           connectionStrBuilder.append(String.format("&replicaSet=%s", instanceConfig.get(REPLICA_SET).asText()));
         }
@@ -255,36 +270,56 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
             String.format(MONGODB_CLUSTER_URL, credentials, instanceConfig.get(CLUSTER_URL).asText(), config.get(JdbcUtils.DATABASE_KEY).asText(),
                 config.get(AUTH_SOURCE).asText()));
       }
-//      case DOCUMENTDB -> {
-//        final var tls = config.has(TLS) ? config.get(TLS).asBoolean() : (instanceConfig.has(TLS) ? instanceConfig.get(TLS).asBoolean() : true);
-//        connectionStrBuilder.append(
-//                String.format(MONGODB_DOCUMENTDB_URL, credentials, instanceConfig.get(HOST).asText(),
-//                        instanceConfig.get(PORT).asText(), config.get(DATABASE).asText(), tls));
-//      }
       default -> throw new IllegalArgumentException("Unsupported instance type: " + instance);
     }
     return connectionStrBuilder.toString();
   }
 
-  @Override
-  public void close() throws Exception {}
-
-  private static void convertAndImportCertificate(final String certificate) {
+  private static void convertAndImportCertificate(final String certificate) throws IOException, InterruptedException {
     final Runtime run = Runtime.getRuntime();
-    try (final PrintWriter out = new PrintWriter("certificate.pem")) {
-      out.print(certificate);
+    final String[] cert_list = certificate.split("(?<=/-----END CERTIFICATE-----/)");
+    for (int i = 0; i < cert_list.length; i++) {
+      try (final PrintWriter out = new PrintWriter("certificate_" + i + ".pem")) {
+        out.print(cert_list[i]);
+      }
+      BufferedReader cert = runProcessWithOutput("openssl x509 -noout -text -in certificate_" + i + ".pem", run);
+      Pattern subject_pattern = Pattern.compile("Subject:");
+      Pattern pattern = Pattern.compile("(?<=(CN=)).*|(?<=(CN = )).*");
+      String alias;
+      String line;
+      while ((line = cert.readLine()) != null) {
+        Matcher subject_matcher = subject_pattern.matcher(line);
+        if (subject_matcher.matches()) {
+          Matcher matcher = pattern.matcher(line);
+          alias = matcher.group();
+          runProcess(
+            "keytool -import -alias " + alias + " -keystore " + KEY_STORE_FILE_PATH + " -file certificate_" + i + ".pem -storepass " + KEY_STORE_PASS + " -noprompt", 
+            run);
+          break;
+        }
+      }
     }
-//    runProcess("openssl x509 -outform der -in certificate.pem -out certificate.der", run);
-//    runProcess(
-//            "keytool -import -alias rds-root -keystore " + KEY_STORE_FILE_PATH + " -file certificate.der -storepass " + KEY_STORE_PASS + " -noprompt",
-//            run);
   }
 
-  private static void runProcess(final String cmd, final Runtime run) {
+  private static void runProcess(final String cmd, final Runtime run) throws IOException, InterruptedException {
     final Process pr = run.exec(cmd);
     if (!pr.waitFor(30, TimeUnit.SECONDS)) {
       pr.destroy();
       throw new RuntimeException("Timeout while executing: " + cmd);
     } ;
   }
+
+  private static BufferedReader runProcessWithOutput(final String cmd, final Runtime run) throws IOException, InterruptedException {
+    final Process pr = run.exec(cmd);
+    InputStream is = pr.getInputStream();
+    BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+    if (!pr.waitFor(30, TimeUnit.SECONDS)) {
+      pr.destroy();
+      throw new RuntimeException("Timeout while executing: " + cmd);
+    } ;
+    return reader;
+  }
+
+  @Override
+  public void close() throws Exception {}
 }
