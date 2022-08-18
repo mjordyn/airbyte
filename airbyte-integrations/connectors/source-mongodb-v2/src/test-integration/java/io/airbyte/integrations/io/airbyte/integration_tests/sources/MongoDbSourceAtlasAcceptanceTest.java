@@ -26,7 +26,7 @@ import org.bson.BsonArray;
 import org.bson.BsonString;
 import org.bson.Document;
 
-public class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAcceptanceTest {
+public abstract class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAcceptanceTest {
 
   private static final Path CREDENTIALS_PATH = Path.of("secrets/credentials.json");
 
@@ -64,6 +64,7 @@ public class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAccep
         .put("instance", ATLAS.getType())
         .put("cluster_url", credentialsJson.get("cluster_url").asText())
         .build());
+    final JsonNode encryptionConfig = getEncryptionConfig();
 
     config = Jsons.jsonNode(ImmutableMap.builder()
         .put("user", credentialsJson.get("user").asText())
@@ -71,13 +72,17 @@ public class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAccep
         .put("instance_type", instanceConfig)
         .put(JdbcUtils.DATABASE_KEY, DATABASE_NAME)
         .put("auth_source", "admin")
+        .put("encryption", encryptionConfig)
         .build());
 
-    final String connectionString = String.format("mongodb+srv://%s:%s@%s/%s?authSource=admin&retryWrites=true&w=majority&tls=true",
+    final boolean tls = config.get("encryption").get("encryption_method").asText().equals("unencrypted") ? false : true;
+
+    final String connectionString = String.format("mongodb+srv://%s:%s@%s/%s?authSource=admin&retryWrites=true&w=majority&ssl=%s",
         config.get("user").asText(),
         config.get(JdbcUtils.PASSWORD_KEY).asText(),
         config.get("instance_type").get("cluster_url").asText(),
-        config.get(JdbcUtils.DATABASE_KEY).asText());
+        config.get(JdbcUtils.DATABASE_KEY).asText(),
+        tls);
 
     database = new MongoDatabase(connectionString, DATABASE_NAME);
 
@@ -111,4 +116,5 @@ public class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAccep
     assertEquals(CatalogHelpers.fieldsToJsonSchema(FIELDS), actualStream.getJsonSchema());
   }
 
+  protected abstract JsonNode getEncryptionConfig();
 }
