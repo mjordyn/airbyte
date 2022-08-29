@@ -80,11 +80,16 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
   }
 
   @Override
-  public JsonNode toDatabaseConfig(final JsonNode config) {
+  public JsonNode toDatabaseConfig(final JsonNode config) throws IllegalStateException {
     LOGGER.info("starting toDatabaseConfig");
     Iterator<String> fields = config.fieldNames();
     while (fields.hasNext()) {
       LOGGER.info("Next fieldName: {}", fields.next());
+    }
+    boolean isAtlas = config.get(INSTANCE_TYPE).get(INSTANCE).asText().equals("atlas");
+    boolean isUnencrypted = config.get(ENCRYPTION).get("encryption_method").asText().equals("unencrypted");
+    if (isAtlas && isUnencrypted) {
+      throw new IllegalStateException("Atlas instances must use encryption");
     }
     LOGGER.info("passwordkey: {}", JdbcUtils.PASSWORD_KEY.equals("password"));
     final List<String> additionalParameters = new ArrayList<>();
@@ -240,7 +245,7 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
     boolean tls = false;
     // supports backward compatibility and secure only connector
     if (config.has(ENCRYPTION)) {
-      final JsonNode encryptionConfig = config.get("encryption");
+      final JsonNode encryptionConfig = config.get(ENCRYPTION);
       final String encryptionMethod = encryptionConfig.get("encryption_method").asText();
       switch (encryptionMethod) {
         case "unencrypted" -> {
@@ -354,7 +359,7 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
     LOGGER.info("cmd: {}", cmd);
     final Process pr = run.exec(cmd);
     InputStream is = pr.getInputStream();
-    BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+    BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
     if (!pr.waitFor(30, TimeUnit.SECONDS)) {
       pr.destroy();
       throw new RuntimeException("Timeout while executing: " + cmd);
