@@ -4,7 +4,7 @@
 
 package io.airbyte.integrations.io.airbyte.integration_tests.sources;
 
-import static io.airbyte.db.mongodb.MongoUtils.MongoInstanceType.STANDALONE;
+import static io.airbyte.db.mongodb.MongoUtils.MongoInstanceType.ATLAS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,19 +19,18 @@ import io.airbyte.protocol.models.AirbyteStream;
 import io.airbyte.protocol.models.CatalogHelpers;
 import io.airbyte.protocol.models.Field;
 import io.airbyte.protocol.models.JsonSchemaType;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.bson.BsonArray;
 import org.bson.BsonString;
 import org.bson.Document;
-import org.testcontainers.containers.MongoDBContainer;
-import org.testcontainers.utility.DockerImageName;
 
-public abstract class MongoDbSourceStandaloneAcceptanceTest extends MongoDbSourceAbstractAcceptanceTest {
+public abstract class MongoDbSourceReplicaSetAcceptanceTest extends MongoDbSourceAbstractAcceptanceTest {
 
-  private MongoDBContainer mongoDBContainer;
-  protected boolean tls;
+  private static final Path credentialsPath;
 
-  private static final List<Field> SUB_FIELDS = List.of(
+  protected static final List<Field> SUB_FIELDS = List.of(
       Field.of("testObject", JsonSchemaType.OBJECT, List.of(
           Field.of("name", JsonSchemaType.STRING),
           Field.of("testField1", JsonSchemaType.STRING),
@@ -40,7 +39,7 @@ public abstract class MongoDbSourceStandaloneAcceptanceTest extends MongoDbSourc
               Field.of("data", JsonSchemaType.STRING),
               Field.of("intData", JsonSchemaType.NUMBER))))));
 
-  private static final List<Field> FIELDS = List.of(
+  protected static final List<Field> FIELDS = List.of(
       Field.of("id", JsonSchemaType.STRING),
       Field.of("_id", JsonSchemaType.STRING),
       Field.of("name", JsonSchemaType.STRING),
@@ -52,32 +51,37 @@ public abstract class MongoDbSourceStandaloneAcceptanceTest extends MongoDbSourc
 
   @Override
   protected void setupEnvironment(final TestDestinationEnv environment) throws Exception {
-    mongoDBContainer = new MongoDBContainer(DockerImageName.parse("mongo:4.0.10"));
-    mongoDBContainer.start();
+    if (!Files.exists(CREDENTIALS_PATH)) {
+      throw new IllegalStateException(
+          "Must provide path to a MongoDB credentials file. By default {module-root}/" + CREDENTIALS_PATH
+              + ". Override by setting setting path with the CREDENTIALS_PATH constant.");
+    }
+
+    final String credentialsJsonString = Files.readString(CREDENTIALS_PATH);
+    final JsonNode credentialsJson = Jsons.deserialize(credentialsJsonString);
 
     final JsonNode instanceConfig = Jsons.jsonNode(ImmutableMap.builder()
-        .put("instance", STANDALONE.getType())
-        .put(JdbcUtils.HOST_KEY, mongoDBContainer.getHost())
-        .put(JdbcUtils.PORT_KEY, mongoDBContainer.getFirstMappedPort())
-        .put(JdbcUtils.TLS_KEY, false)
+        .put("instance", REPLICA_SET.getType())
+        .put("server_addresses", credentialsJson.get("server_addresses").asText())
         .build());
 
     config = Jsons.jsonNode(ImmutableMap.builder()
+        .put("user", credentialsJson.get("user").asText())
+        .put(JdbcUtils.PASSWORD_KEY, credentialsJson.get(JdbcUtils.PASSWORD_KEY).asText())
         .put("instance_type", instanceConfig)
         .put(JdbcUtils.DATABASE_KEY, DATABASE_NAME)
         .put("auth_source", "admin")
+        .put("encryption", credentialsJson.get("encryption").asText())
         .build());
 
-    // final var connectionString = String.format("mongodb://%s:%s/",
-    //     mongoDBContainer.getHost(),
-    //     mongoDBContainer.getFirstMappedPort());
+    final boolean tls = config.get("encryption").get("encryption_method").asText().equals("unencrypted") ? false : true;
 
-    final var connectionString = String.format("mongodb://%s%s:%s/%s?authSource=%s&ssl=%s", 
-        credentials, 
-        instanceConfig.get(JdbcUtils.HOST_KEY).asText(),
-        instanceConfig.get(JdbcUtils.PORT_KEY).asText(),
-        config.get(JdbcUtils.DATABASE_KEY).asText(), 
-        config.get(AUTH_SOURCE).asText(), 
+    final String connectionString = String.format("mongodb://%s:%s@%s/%s?authSource=%s&ssl=%s&directConnection=false",
+        config.get("user").asText(), 
+        config.get(JdbcUtils.PASSWORD_KEY).asText(), 
+        config.get("instance_type").get("server_addresses").asText(),
+        config.get(JdbcUtils.DATABASE_KEY).asText(),
+        config.get("auth_source").asText(), 
         tls);
 
     database = new MongoDatabase(connectionString, DATABASE_NAME);
@@ -98,8 +102,8 @@ public abstract class MongoDbSourceStandaloneAcceptanceTest extends MongoDbSourc
 
   @Override
   protected void tearDown(final TestDestinationEnv testEnv) throws Exception {
+    database.getDatabase().getCollection(COLLECTION_NAME).drop();
     database.close();
-    mongoDBContainer.close();
   }
 
   @Override

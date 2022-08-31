@@ -86,10 +86,12 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
     while (fields.hasNext()) {
       LOGGER.info("Next fieldName: {}", fields.next());
     }
-    boolean isAtlas = config.get(INSTANCE_TYPE).get(INSTANCE).asText().equals("atlas");
-    boolean isUnencrypted = config.get(ENCRYPTION).get("encryption_method").asText().equals("unencrypted");
-    if (isAtlas && isUnencrypted) {
-      throw new IllegalStateException("Atlas instances must use encryption");
+    if (config.has(ENCRYPTION)) {
+      boolean isAtlas = config.get(INSTANCE_TYPE).get(INSTANCE).asText().equals("atlas");
+      boolean isUnencrypted = config.get(ENCRYPTION).get("encryption_method").asText().equals("unencrypted");
+      if (isAtlas && isUnencrypted) {
+        throw new IllegalStateException("Atlas instances must use encryption");
+      }
     }
     LOGGER.info("passwordkey: {}", JdbcUtils.PASSWORD_KEY.equals("password"));
     final List<String> additionalParameters = new ArrayList<>();
@@ -246,16 +248,19 @@ public class MongoDbSource extends AbstractDbSource<BsonType, MongoDatabase> {
     // supports backward compatibility and secure only connector
     if (config.has(ENCRYPTION)) {
       final JsonNode encryptionConfig = config.get(ENCRYPTION);
+      LOGGER.info("Encryption config: {}", encryptionConfig.asText());
       final String encryptionMethod = encryptionConfig.get("encryption_method").asText();
       switch (encryptionMethod) {
         case "unencrypted" -> {
           tls = false;
         }
         case "encrypted_verify_certificate" -> {
-          try {
-            convertAndImportCertificate(encryptionConfig.get("ssl_certificate").asText());
-          } catch (final IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to import certificate into Java Keystore");
+          if (encryptionConfig.has("ssl_certificate")) {
+            try {
+              convertAndImportCertificate(encryptionConfig.get("ssl_certificate").asText());
+            } catch (final IOException | InterruptedException e) {
+              throw new RuntimeException("Failed to import certificate into Java Keystore");
+            }
           }
           tls = true;
         }

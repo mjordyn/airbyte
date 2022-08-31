@@ -26,9 +26,9 @@ import org.bson.BsonArray;
 import org.bson.BsonString;
 import org.bson.Document;
 
-public abstract class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAcceptanceTest {
+public class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbstractAcceptanceTest {
 
-  private static final Path CREDENTIALS_PATH = Path.of("secrets/credentials.json");
+  private static final Path CREDENTIALS_PATH = Path.of("secrets/atlas_credentials.json");
 
   protected static final List<Field> SUB_FIELDS = List.of(
       Field.of("testObject", JsonSchemaType.OBJECT, List.of(
@@ -77,11 +77,12 @@ public abstract class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbst
 
     final boolean tls = config.get("encryption").get("encryption_method").asText().equals("unencrypted") ? false : true;
 
-    final String connectionString = String.format("mongodb+srv://%s:%s@%s/%s?authSource=admin&retryWrites=true&w=majority&ssl=%s",
+    final String connectionString = String.format("mongodb+srv://%s:%s@%s/%s?authSource=%s&retryWrites=true&w=majority&ssl=%s",
         config.get("user").asText(),
         config.get(JdbcUtils.PASSWORD_KEY).asText(),
         config.get("instance_type").get("cluster_url").asText(),
         config.get(JdbcUtils.DATABASE_KEY).asText(),
+        config.get("auth_source").asText(),
         tls);
 
     database = new MongoDatabase(connectionString, DATABASE_NAME);
@@ -116,5 +117,10 @@ public abstract class MongoDbSourceAtlasAcceptanceTest extends MongoDbSourceAbst
     assertEquals(CatalogHelpers.fieldsToJsonSchema(FIELDS), actualStream.getJsonSchema());
   }
 
-  protected abstract JsonNode getEncryptionConfig();
+  protected JsonNode getEncryptionConfig() {
+    final JsonNode encryptionConfig = Jsons.jsonNode(ImmutableMap.builder()
+        .put("encryption_method", "encrypted_verify_certificate")
+        .build());
+    return encryptionConfig;
+  }
 }
