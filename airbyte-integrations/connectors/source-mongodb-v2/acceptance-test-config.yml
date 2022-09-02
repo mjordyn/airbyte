@@ -1,0 +1,13 @@
+# See [Source Acceptance Tests](https://docs.airbyte.io/connector-development/testing-connectors/source-acceptance-tests-reference)
+# for more information about how to configure these tests
+connector_image: airbyte/source-mongodb-v2:dev
+tests:
+  spec:
+    - spec_path: "src/main/resources/spec.json"
+  connection:
+    - config_path: "secrets/atlas_credentials.json"
+      status: "succeed"
+    # - config_path: "secrets/rs_credentials_unencrypted"
+    #   status: "succeed"
+    # - config_path: "secrets/rs_credentials_encrypted"
+    #   status: "succeed"

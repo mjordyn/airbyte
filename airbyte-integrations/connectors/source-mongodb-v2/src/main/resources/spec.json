@@ -20,6 +20,7 @@
             "properties": {
               "instance": {
                 "type": "string",
+                "const": "standalone",
                 "enum": ["standalone"],
                 "default": "standalone"
               },
@@ -47,6 +48,7 @@
             "properties": {
               "instance": {
                 "type": "string",
+                "const": "replica",
                 "enum": ["replica"],
                 "default": "replica"
               },
@@ -67,11 +69,11 @@
           },
           {
             "title": "MongoDB Atlas",
-            "additionalProperties": false,
             "required": ["instance", "cluster_url"],
             "properties": {
               "instance": {
                 "type": "string",
+                "const": "atlas",
                 "enum": ["atlas"],
                 "default": "atlas"
               },
@@ -120,7 +122,6 @@
         "oneOf": [
           {
             "title": "Unencrypted",
-            "additionalProperties": false,
             "description": "Data transfer will not be encrypted.",
             "required": ["encryption_method"],
             "properties": {
@@ -133,9 +134,8 @@
             }
           },
           {
-            "title": "TLS Encrypted (verify certificate)",
-            "additionalProperties": false,
-            "description": "Verify and use the certificate provided by the server.",
+            "title": "TLS Encrypted",
+            "description": "Data transfer will use encryption in flight.",
             "required": ["encryption_method"],
             "properties": {
               "encryption_method": {
