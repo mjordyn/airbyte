@@ -44,6 +44,7 @@ def acceptance_test_config_fixture(pytestconfig) -> Config:
 @pytest.fixture(name="connector_config_path")
 def connector_config_path_fixture(inputs, base_path) -> Path:
     """Fixture with connector's config path"""
+    logging.warning("Inputs: " + inputs)
     return Path(base_path) / getattr(inputs, "config_path")
 
 

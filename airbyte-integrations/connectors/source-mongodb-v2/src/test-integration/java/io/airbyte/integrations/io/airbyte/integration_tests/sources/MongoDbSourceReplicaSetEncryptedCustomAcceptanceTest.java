@@ -10,7 +10,7 @@ import io.airbyte.commons.json.Jsons;
 
 public class MongoDbSourceReplicaSetEncryptedCustomAcceptanceTest extends MongoDbSourceReplicaSetAcceptanceTest {
     
-    credentialsPath = Path.of("secrets/rs_credentials_encrypted_custom.json");
+    credentialsPath = Path.of("secrets/config.json");
 
     @Override
     protected JsonNode getEncryptionConfig(JsonNode credentialsJson) {

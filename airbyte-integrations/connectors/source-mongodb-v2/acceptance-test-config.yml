@@ -5,9 +5,5 @@ tests:
   spec:
     - spec_path: "src/main/resources/spec.json"
   connection:
-    - config_path: "secrets/atlas_credentials.json"
+    - config_path: "secrets/config.json"
       status: "succeed"
-    # - config_path: "secrets/rs_credentials_unencrypted"
-    #   status: "succeed"
-    # - config_path: "secrets/rs_credentials_encrypted"
-    #   status: "succeed"

@@ -20,9 +20,7 @@
             "properties": {
               "instance": {
                 "type": "string",
-                "const": "standalone",
-                "enum": ["standalone"],
-                "default": "standalone"
+                "const": "standalone"
               },
               "host": {
                 "title": "Host",
@@ -48,9 +46,7 @@
             "properties": {
               "instance": {
                 "type": "string",
-                "const": "replica",
-                "enum": ["replica"],
-                "default": "replica"
+                "const": "replica"
               },
               "server_addresses": {
                 "title": "Server Addresses",
@@ -73,9 +69,7 @@
             "properties": {
               "instance": {
                 "type": "string",
-                "const": "atlas",
-                "enum": ["atlas"],
-                "default": "atlas"
+                "const": "atlas"
               },
               "cluster_url": {
                 "title": "Cluster URL",
@@ -127,9 +121,7 @@
             "properties": {
               "encryption_method": {
                 "type": "string",
-                "const": "unencrypted",
-                "enum": ["unencrypted"],
-                "default": "unencrypted"
+                "const": "unencrypted"
               }
             }
           },
@@ -140,9 +132,7 @@
             "properties": {
               "encryption_method": {
                 "type": "string",
-                "const": "encrypted_verify_certificate",
-                "enum": ["encrypted_verify_certificate"],
-                "default": "encrypted_verify_certificate"
+                "const": "encrypted_verify_certificate"
               },
               "ssl_certificate": {
                 "title": "SSL PEM File",
@@ -157,5 +147,6 @@
         ]
       }
     }
-  }
+  },
+  "supported_destination_sync_modes": []
 }
